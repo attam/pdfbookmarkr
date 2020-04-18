@@ -11,16 +11,14 @@
 # Dependencies required for this tool to function
 # external:
 #   pdftk
-#       Used to insert metadata and generate an output pdf file
+#       Used to create bookmarks for output pdf file
 #         The pdftk home page permalink is:
 #         http://www.pdflabs.com/tools/pdftk-the-pdf-toolkit/
 #         The easy-to-remember shortcut is: www.pdftk.com
-# 
-#   pdfinfo:
-#       Used to extract the page number of pdf files:
-#         pdfinfo version 0.87.0
-#         Copyright 2005-2020 The Poppler Developers - http://poppler.freedesktop.org
-#         Copyright 1996-2011 Glyph & Cog, LLC
+#
+#   pagelabels-py
+#       Used to generate Roman and Arabic-style page numbering for output pdf
+#       see link: https://github.com/lovasoa/pagelabels-py
 #
 # Assumptions
 #   Several assumptions have been made in writing this R script, although they can be easily adjusted and individualized with only basic R skills...
@@ -36,8 +34,13 @@
 #      o_pdf=output pdf file (does not require full path; default action is to output to same directory as input pdf)
 #      bookmarks_csv=bookmark info in csv format (see below for details)
 #   The following parameters are optional [if not set, default in square brackets]:
-#      page_offset = actual page number of the first page that starts with arabic numerals [1]
-#      
+#     roman_offset = [0]
+#     arabic_offset = [0]
+#     These should take the value of the actual page numbers for the first arabic (and roman, if present) bookmarks
+#         example .1) if the first roman bookmark is "v", and it corresponds to the 4th page of the input pdf, then roman_offset should be 4
+#         example 2) if there are no roman numerals, and the first bookmark contains the arabic numeral 5, which is on the 3rd page of the input pdf, this implies
+#           that the first 2 pages of the pdf were cut out. In order to maintain consistent numbering, add the argument arabic_offset = 3
+#
 # The bookmark_csv parameter should be the name of a csv file that contains the column headings, respectively: "Title", "Page","Level"
 #   Title column: contains the title of the bookmark which will appear in the output pdf file
 #   Page column: contains the page numbers in roman and/or arabic numerals based on the input pdf
@@ -60,59 +63,30 @@ get_meta<-function(pdf_in) {
   return(meta_parsed)
 }
 
-bookmark_pdf<-function(pdf_in,pdf_out,bookmarks_csv,page_offset=NULL) {
+bookmark_pdf<-function(pdf_in,pdf_out,bookmarks_csv,roman, arabic,roman_offset=NULL, arabic_offset=NULL) {
   setwd(dirname(pdf_in))
   meta_parsed<-get_meta(pdf_in)
   # extract the number of pages in the pdf file
   npages<-meta_parsed$NumberOfPages
   bookmarks<-read.csv(bookmarks_csv, stringsAsFactors=FALSE)
-  
+  # generate bookmark pages based on offsets
   # evaluate if any bookmarks are unnumbered or roman numerals, and convert them into numeric indices
-  # default is no roman/unnumbered pages at start of pdf, starting with 1 for arabic numerals: c(actual_page=0,starting_index_label=1)
-  arabic_bookmarks_indices<-grep("^[0-9]+$",bookmarks$Page)
-  roman_bookmarks_indices<--grep("^[0-9]+$",bookmarks$Page, invert=TRUE)
-  max_roman<-ifelse(length(roman_bookmarks_indices)==0,0,as.numeric(bookmarks$Page[arabic_bookmarks_indices[1]])-1)
-  page_offset<-ifelse(is.null(page_offset),1,page_offset)
-  label_start_arabic<-c(page_offset,bookmark)
-  #label_start_arabic<-c(max_roman+1,npages-bookmarks$Page[arabic_bookmarks_indices[1]]-max_roman-1)
+  arabic_indices<-grep("^[0-9]+$",bookmarks$Page)
+  roman_indices<-grep("^[0-9]+$",bookmarks$Page, invert=TRUE)
+  bookmarks$nominalPage<-nominal_pages<-as.numeric(as.roman(bookmarks$Page))
+  offsets<-mapply(function(x,y,z) ifelse(is.null(x), 0-z[y],x-z[y]),c(roman_offset,arabic_offset),c(roman_indices[1],arabic_indices[1]),MoreArgs=list(bookmarks$nominalPage))
+  bookmarks$actualPage<-mapply(function(x,y,o) ifelse(x,y+o[2],y+o[1]), grepl("^[0-9]+$",bookmarks$Page),nominal_pages,MoreArgs=list(offsets))
   
-  prefix_roman<-""
-  if (length(roman_bookmarks_indices)!=0) {
-    label_start_roman<-c(ifelse(length(roman_bookmarks_indices)==0,0,1),npages-bookmarks$Page[arabic_bookmarks_indices[1]])  
-    prefix_roman<-paste("PageLabelBegin\nPageLabelNewIndex: ",label_start_roman[0],"\nPageLabelStart: 1","PageLabelNumStyle: UppercaseRomanNumerals\n",sep="")
-  }
-  
-  
-  
-  prefix_arabic<-paste("PageLabelBegin\nPageLabelNewIndex: ",arabic_index,"\nPageLabelStart: ",starting_arabic,"PageLabelNumStyle: DecimalArabicNumerals\n",sep="")
-  
-  
-  new_indices<-vector(mode="numeric",length(bookmarks$Page))
-  
-  starting_arabic<-as.numeric(bookmarks$Page[min(which(grepl("^[0-9]+$", bookmarks$Page)))])
-  
-  arabic_index<-ifelse(min(which(grepl("^[0-9]+$", bookmarks$Page)))==1,1,starting_arabic)
-  
-  first_roman<-ifelse(min(which(grepl("^[0-9]+$", bookmarks$Page)))==1,1,1)
-  #<-ifelse(is.null(starting_arabic),1,starting_arabic)
-  arabic_index<-ifelse(is.null(starting_arabic),1,starting_arabic)
-  if (min(which(grepl("^[0-9]+$", bookmarks$Page)))==1)
-    roman_indices<-as.roman(bookmarks$Pagewhich(!grepl("^[0-9]+$", bookmarks$Page, perl = T)))
-  numeric_indices<-which(grepl("^[0-9]+$", bookmarks$Page, perl = T))
-  
-  
-  # default setting of page indices for roman and arabic numerals in the format c(actual, labelled)
-  arabic_index<-ifelse(is.null(starting_arabic),1,starting_arabic)
-  roman_index<-ifelse(is.null(max_roman),c(1,starting_arabic),c(max_roman,starting_arabic))
-  
-  
-  # adjust page numbering based on starting indices for roman/unnumbered and arabic numerals provided  
-  bookmark_input[,2]<-bookmark_input[,2]+max_roman
-  bookmark_export<-paste("BookmarkBegin\nBookmarkTitle: ",bookmark_input[,1],"\nBookmarkLevel: 1\nBookmarkPageNumber: ",bookmark_input[,2],"\n",sep="")
-  
-  fileConn<-file(pdf_bookmarks.txt)
-  writeLines(c(prefix_roman,prefix_arabic,bookmark_export),fileConn)
+  bookmark_tags<-paste("BookmarkBegin\nBookmarkTitle: ",bookmarks$Title,"\nBookmarkLevel: ",bookmarks$Level,"\nBookmarkPageNumber: ",bookmarks$actualPage,sep="")
+  fileConn<-file("pdf_bookmarks.txt")
+  writeLines(bookmark_tags,con=fileConn,sep="\n")
   close(fileConn)
+  #python3 -m pagelabels --startpage 8 --type "arabic" --firstpagenum 337 --outfile /tmp/new.pdf /tmp/new.pdf
+  if (length(roman_indices)!=0) {
+    system(paste(c('python3 -m pagelabels --startpage',roman[1],' --type "roman lowercase" --firstpagenum',roman[2],' --outfile ',pdf_out,pdf_in),collapse = ' '))
+    }
+  if (length(arabic_indices)!=0) {
+    system(paste(c('python3 -m pagelabels --startpage',arabic[1],' --type "arabic" --firstpagenum',arabic[2],' --outfile ',pdf_out,pdf_in),collapse = ' '))    }
   system2('pdftk', args=c(pdf_in,"update_info", "pdf_bookmarks.txt", "output", pdf_out))
-  return()
+  return(paste("Page numbering and bookmarks have been set in file ",pdf_out,sep=""))
 }
