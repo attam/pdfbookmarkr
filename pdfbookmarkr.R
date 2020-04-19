@@ -38,8 +38,6 @@
 #   Title column: contains the title of the bookmark which will appear in the output pdf file
 #   Page column: contains the page numbers in roman and/or arabic numerals based on the input pdf
 #   Level column: contains the bookmark level, where 1 is the top-level; higher numbers are nested bookmarks for corresponding subsections, and sub-subsections
-#
-#   Note: A new text file (pdf_bookmarks.txt) will be created and used to write the bookmarks to the pdf output file
 # 
 # Future plans include:
 #   1) error handling
@@ -60,7 +58,7 @@ bookmark_pdf<-function(pdf_in,bookmarks_csv,roman=c(0,0), arabic=c(1,1), pdf_out
   setwd(dirname(pdf_in))
   meta_parsed<-get_meta(pdf_in)
   # extract the number of pages in the pdf file
-  npages<-meta_parsed$NumberOfPages
+  npages<-as.numeric(meta_parsed$NumberOfPages)
   
   # read bookmark_csv file containing bookmark info to be written to pdf output file
   bookmarks<-read.csv(bookmarks_csv, stringsAsFactors=FALSE)
@@ -76,18 +74,17 @@ bookmark_pdf<-function(pdf_in,bookmarks_csv,roman=c(0,0), arabic=c(1,1), pdf_out
   
   # write bookmark info to new file pdf_bookmarks.txt
   bookmark_tags<-paste("BookmarkBegin\nBookmarkTitle: ",bookmarks$Title,"\nBookmarkLevel: ",bookmarks$Level,"\nBookmarkPageNumber: ",bookmarks$actualPage,sep="")
+  
   fileConn<-file("pdf_bookmarks.txt")
-  writeLines(bookmark_tags,con=fileConn,sep="\n")
+  writeLines(c(bookmark_tags),con=fileConn,sep="\n")
   close(fileConn)
   
-  # add Arabic and/or Roman page numbering to the output pdf file
-  if (length(roman_indices)!=0) {
-    system(paste(c('python3 -m pagelabels --startpage',roman[1],' --type "roman lowercase" --firstpagenum',roman[2],' --outfile ',pdf_out,pdf_in),collapse = ' '))
-    }
-  if (length(arabic_indices)!=0) {
-    system(paste(c('python3 -m pagelabels --startpage',arabic[1],' --type "arabic" --firstpagenum',arabic[2],' --outfile ',pdf_out,pdf_in),collapse = ' '))    }
-  
-  # write the bookmark info to the pdf output file
-  system2('pdftk', args=c(pdf_in,"update_info", "pdf_bookmarks.txt", "output", pdf_out))
+  # write the bookmark and page numbers info to the pdf output file
+  #system(paste(c("pdftk",pdf_in,"update_info 'pdf_bookmarks.txt' output", pdf_out), collapse = ' '))
+  system2("pdftk",args=c(pdf_in,"update_info","'pdf_bookmarks.txt'","output",pdf_out))
+  file.remove("pdf_bookmarks.txt")
+  system2("python3", args=c("-m","pagelabels","--startpage",roman[1],"--type","'roman lowercase'","--firstpagenum",roman[2],"--outfile",pdf_out,pdf_out))
+  system2("python3", args=c("-m","pagelabels","--startpage",arabic[1],"--type","'arabic'","--firstpagenum",arabic[2],"--outfile",pdf_out,pdf_out))
+
   return(paste("Page numbering and bookmarks have been set in file ",pdf_out,sep=""))
 }
